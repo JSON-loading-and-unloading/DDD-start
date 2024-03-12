@@ -32,7 +32,7 @@ public class Order {
 
    주문 항목이 어떤 데이터로 구성되는지 알려준다.</br>
 
-   ```
+```
    public class OrderLine {
     private Product product; // 주문할 상품
     private int price; // 상품의 가격
@@ -52,8 +52,7 @@ public class Order {
 
     public int getAmounts() { ... }
     
-    // ...
-}
+  }
 
 ```
 
@@ -74,7 +73,7 @@ public class Order {
     }
 
   private void setOrderLines(List<OrderLine> orderLines){
-     ...
+    ...
      }
 
   private void calculateTotalAmounts(){
@@ -86,7 +85,7 @@ public class Order {
     }
   }
 
-  ```
+```
 
 ```
 public class ShipingInfo {
@@ -97,7 +96,7 @@ public class ShipingInfo {
  private String shipingZipcode;
 
  ...
-}
+  }
 
 ```
 
@@ -118,8 +117,7 @@ public class Order {
         if(shippingInfo == null)
             throw new IllegalArgumentException("no ShippingInfo");
     }
- ...
-}
+ }
 
 ```
 
@@ -135,7 +133,6 @@ ShippingInfo가 null이면 익셉션이 발생하여, 배송지 구현 필수 �
 public enum OrderState {
     PAYMENT_WAITING, PREPARING, SHIPPED, DELIVERING, DELIVERY_COMPLETED;
 }
-
 
 ```
 
@@ -158,7 +155,7 @@ public class Order {
         if( state != OrderState.PAYMENT_WATING && state != OrderState.PREPARING)
             throw new IllegalStateException("aleady shipped");
      }
-}
+ }
 
 ```
 
