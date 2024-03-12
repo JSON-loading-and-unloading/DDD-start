@@ -34,7 +34,7 @@
 
 이러한 주문 모델을 객체 모델로 구성하면 다음과 같을 것이다.
 
-![Untitled](https://prod-files-secure.s3.us-west-2.amazonaws.com/ed58f7c6-46bb-48c4-829a-b24be3b7faa2/35286e56-0ae6-4a6d-b362-4e17576325c4/Untitled.png)
+![Untitled](./image/1.png)
 
 물론, 상태 다이어그램과 같은 방식을 통해서도, 그래프를 통해서도 여러가지 방법을 통해서 도메인 모델을 표현할 수 있다.
 
@@ -46,7 +46,7 @@
 
 일반적인 어플리케이션의 아키텍처는 다음과 같이 네개의 영역으로 구성된다.
 
-![Untitled](https://prod-files-secure.s3.us-west-2.amazonaws.com/ed58f7c6-46bb-48c4-829a-b24be3b7faa2/33481396-6dda-4f9d-87b2-0b7c812ec391/Untitled.png)
+![Untitled](./image/2.png)
 
 이때 응용은 사용자가 요청한 기능을 실행하는 것으로, 업무 로직을 직접 구현하지 않고 도메인 계층을 조합해서 기능을 수행한다.
 
@@ -186,7 +186,7 @@ public class ShppingInfo {
 
 도출한 모델은 크게 엔티티Entity와 밸류Value로 구분할 수 있다.
 
-![Untitled](https://prod-files-secure.s3.us-west-2.amazonaws.com/ed58f7c6-46bb-48c4-829a-b24be3b7faa2/91e43155-124c-4412-81b4-926b6cc93dc1/Untitled.png)
+![Untitled](./image/3.png)
 
 이것은 요구사항 분석 과정에서 만든 모델로 위 그림에는 엔티티도 존재하고 밸류도 존재한다.
 
