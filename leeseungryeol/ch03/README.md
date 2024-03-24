@@ -146,8 +146,90 @@ public class ChangeOrderService{
 	}
 }
 
+
 ```
 
 한 트랜잭션에서 한 개의 애그리거트를 변경하는 것을 권장하지만, 다음 경우에는 한 트랜잭션에서 두 개 이상의 애그리거트를 변경하는 것을 고려할 수 있다.
 
 </br>
+<h2>레포지터리와 애그리거트</h2>
+
+- 애그리거트는 개념상 완전한 한 개의 도메인 모델을 표현하므로 객체의 영속성을 처리하는 레포지터리라는 애그리거트 단위로 존재한다.</br>
+  ( Order와 OrderLine을 물리적으로 각각 별도의 DB 테이블에 저장한다고 해서 Order와 OrderLine을 위한 레포지터리를 각각 만들지 않는다. )</br>
+
+
+리포지터리는 보통 다음의 두 메서드를 기본으로 제공한다.</br>
+- save : 애그리거트 저장
+- findById : ID로 애그리거트를 구함
+
+애그리거트는 개념적으로 하나이므로 리포지터리는 애그리거트 전체를 저장소에 영속화해야 한다.</br>
+ex) Order 애그리거트와 관련되 테이블이 세 개라면 Order 애그리거트를 저장할 때 애그리거트 루트와 매핑되는 테이블뿐만 아니라 애그리거트에 속한 모든 구성요소에 매핑된 테이블에 테이터를 저장해야한다.</br></br>
+
+
+```
+Order order = orderRepository.findById(orderId);
+
+```
+동일하게 애그리거트를 구하는 리포지터리 메서드는 완전한 애그리거트를 제공해야한다.</br>
+즉, 다음 코드를 실행하면 order 애그리거트는 OrderLine, Orderer 등 모든 구성요소를 포함하고 있어야 한다.</br></br>
+
+
+<h2>ID를 이용한 애그리거트 참조</h2>
+
+애그리거트도 다른 애그리거트를 참조한다.</br>
+
+![2322](https://github.com/JSON-loading-and-unloading/DDD-start/assets/106163272/6609e0e4-e578-495a-a876-513f288247ae)
+
+ jpa는 @ManyToOne 등 애너테이션을 이용해서 연관된 객체를 로딩하는 기능을 제공하고 있으므로 필드를 이용해 다른 애그리거트를 쉽게 참조할 수 있다.</br>
+ 하지만 필드를 이용한 애그리거트 참조는 문제를 야기할 수 있다.</br>
+
+ 1. 편한 탐색 오용
+ 2. 성능에 대한 고민
+ 3. 확장 어려움
+
+위 세 가지 문제를 완화할 때 사용할 수 있는 것이 ID를 이용해서 다른 애그리거트를 참조하는 것이다.</br>
+![668](https://github.com/JSON-loading-and-unloading/DDD-start/assets/106163272/c2515b22-4c5b-4f56-ab06-22db6b2600ef)
+
+ID 참조를 사용하면 모든 객체가 참조로 연결되지 않고 한 애그리거트에 속한 객체들만 참조로 연결된다.</br>
+이는 애그리거트의 경계를 명확히 하고 애그리거트 간 물리적인 연결을 제거하기 때문에 모델의 복잡도를 낮춰준다.
+</br></br>
+<h3>ID를 이용한 참조와 조회 성능</h3>
+
+한 DBMS에 데이터가 있다면 조인을 이용해서 한 번에 모든 데이터를 가져올 수 있음에도 불구하고 주문마다 상품 정보를 읽어오는 쿼리를 실행하게 된다.</br></br>
+
+
+N+1문제는 주문 개수가 10개면 주문을 읽어오기 위한 1번의 쿼리와 주문별로 각 상품을 읽어오기 위한 10번의 쿼리를 실행한다. </br>
+'조회 대상이 N개일 때 N개를 읽어오는 한 번의 쿼리와 연관된 데이터를  읽어오는 쿼리를 N번 실행한다' 해서 이를 N+1 조회 문제라고 부른다. </br>
+ID를 이용한 애그리거트 참조는 지연로딩과 같은 효과를 만드는데 지연로딩과 관련된 대표적인 문제가 N+1조회 문제이다. </br></br></br>
+
+N+1 조회 문제는 더 많은 쿼리를 실행하기 때문에 전체 조회 속도가 느려지는 원인이 된다.</br>
+이를 해결하기 위한 방법은 조인을 사용하는 것이다. 하지만 이럴 경우 객체 참조 방식으로 다시 되돌리는 것이다.</br>
+
+해결방법</br>
+
+```
+	@Repository
+	public class JpaOrderViewDao implements OrderViewDao{
+		@PersistenceContext
+		private EntityManager em;
+	
+		@Override
+		public List<OrderView> selectByOrderer(String ordererId){
+			String selectQuery = 
+					"select new com.myshop.order.application.dto.OrderView(o,m,p)"+
+					"from Order o join o.orderLines ol, Member m, Product p" +
+					"where o.orderer.memberId.id = :ordererId " +
+					"and o.orderer.memeberId = m.id"+
+					"and index(ol) = 0"+
+					"and ol.productId = p.id" +
+					"order by o.number.number desc";
+			TypedQuery<OrderView> query = 
+						em.createQuery(selectQuery, OrderView.calss);
+			query.setParameter("ordererId", ordererId);
+			return query.getResultList();
+		}
+	}
+
+```
+
+다음과 같이 JPA를 사용할 경우 JPQL을 사용해서 한 번의 쿼리로 데이터를 조회한다.</br>
