@@ -233,3 +233,157 @@ N+1 조회 문제는 더 많은 쿼리를 실행하기 때문에 전체 조회 �
 ```
 
 다음과 같이 JPA를 사용할 경우 JPQL을 사용해서 한 번의 쿼리로 데이터를 조회한다.</br>
+
+<h2>애그리거트 간 집합 연관</h2>
+
+보통 목록 관련 요구사항은 한 번에 전체 상품을 보여주기보다는 페이징을 이용해 제품을 나눠서 보여준다. </br> </br>
+
+카테고리 입장을 1-N연관을 이용해 구현하면 다음과 같은 방식으로 코드를 작성해야 한다. </br>
+
+```
+
+	public class Category {
+	  private Set<Product> products;
+	  
+	  
+	  public List<Product> getProduct(int page, int size) {
+	    List<Product> sortedProducts = sortById(products);
+	    return sortedProducts.subList((page - 1) * size, page * size);
+	  }
+	}
+
+```
+
+
+```
+ public class Product {
+	private CategoryId categoryId;
+	}
+
+```
+이 코드를 실제 DBMS와 연동해서 구현하면 Category에 속한 모든 Product를 조회하게 된다. </br>
+Product 개수가 수만 개 정도로 많다면 이 코드를 실행할 때마다 실행 속도가 급격히 느려져 성능에 심각한 문제를 일으킬 것이다. </br> </br>
+
+응용 서비스는 ProductRepository를 이용해서 categoryId가 지정한 카테고리 식별자인 Product 목록을 구한다. </br>
+
+```
+	public class ProductListService{
+		public Page<Product> getProductOfCategory(Long categoryId, int page, int size){
+			Category category = categoryRepository.findById(categoryId);
+			
+			List<Product> products = 
+				productRepository.findByCategoryId(category.getId(),page,size);
+			int totalCount = productRepository.countsByCategoryId(category.getId());
+			return new Page(page,size,totalCount,products);
+		}
+	...
+	}
+
+```
+
+M-N 연관은 개념적으로 양쪽 애그리거트에 컬렉션으로 연관을 만든다. </br>
+
+ - 보통 특정 카테고리에 속한 상품 목록을 보여줄 때 목록 화면에서 각 상품이 속한 모든 카테고리를 상품 정보에 표시하지는 않는다.
+ - 제품이 속한 모든 카테고리가 필요한 화면은 상품상세 화면이다.
+ - 이러한 요구사항을 고려할 때 카테고리에서 상품으로의 집합 연관은 필요하지 않는다.
+ - 즉 개념적으로는 상품과 카테고리 양방향 M-N 연관이 존재하지만 실제 구현에서는 상품에서 카테고리로의 단방향 M-N 연관만 적용하면 되는 것이다.
+
+JPA ID 참조를 이용하여 M-N 단방향 연관을 구현할 수 있다. </br>
+
+```
+	public class ProductListService{
+		public Page<Product> getProductOfCategory(Long categoryId, int page, int size){
+			Category category = categoryRepository.findById(categoryId);
+			
+			List<Product> products = 
+				productRepository.findByCategoryId(category.getId(),page,size);
+			int totalCount = productRepository.countsByCategoryId(category.getId());
+			return new Page(page,size,totalCount,products);
+		}
+	...
+	}
+
+```
+
+위 매핑 사용 시 JPQL의 member of 연산자를 이용해서 특정 Category에 속한 Product 목록을 구하는 기능을 구현할 수 있다. </br>
+
+```
+
+@Repository
+public class JpaProductRepository implements ProductRepository{
+	@PersistenceContext
+	private EntityManager entityManager;
+
+	@Override
+	public List<Product> findByCategoryId(CategoryId categoryId, int page, int size){
+		TypedQuery<Product> query = entityManager.createQuery(
+				"select p from Product p **where :catId member of p.categoryIds** order by p.id.id desc",
+				Product.class);
+		query.setParameter("catId",categoryId);
+		query.setFirstResult((page-1)*size);
+		query.setMaxResults(size);
+		return query.getResultList();
+	}
+...
+}
+
+```
+
+이 코드에서  :catId member of p.categoryIds는 categoryIds 컬렉션에 catId로 지정한 값이 존재하는지를 검사하기 위한 검색 조건이다. </br>
+
+<h2>애그리거트를 팩토리로 사용하기</h2>
+
+```
+public class RegisterProductService {
+	public ProductId registerNewProduct(NewProductRequest req) {
+		Store account = accountRepository.findStoreById(req.getStoreId());
+		checkNull(account);
+		if (!account.isBlocked()) {
+			throw new StoreBlockedException();
+		}
+		ProductId id = productRepository.nextId();
+		Product product = new Product(id, account.getId(), ...);
+		productRepository.save(product);
+		return id;
+	}
+}
+
+```
+
+위 코드는 도메인 로직 처리가 응용 서비스에 노출 되었다. </br>
+-> Store가 Product를 생성할 수 있는지를 판단하고 Product를 생성하는 것은 논리적으로 하나의 도메인 기능인데 이 도메인 기능을 응용 서비스에서 구현하고 있다. </br> </br>
+
+이 도메인 기능을 넣기 위한 별도의 도메인 서비스나 팩토리 클래스를 만들 수도 있지만 이 기능을 Store 애그리거트에 구현할 수도 있다. </br>
+
+```
+	public class Store {
+		public Product createProduct(ProductId id, ... ) {
+			if (!account.isBlocked()) {
+				throw new StoreBlockedException();
+			}
+			return new Product(id, account.getId(), ...);
+		}
+	}
+
+```
+
+Store애그리거트의 createdProduct()는 Product 애그리거트를 생성하는 팩토리 역할을 한다. </br>
+
+```
+public class Store extends Member {
+	public Product createProduct(ProductId id, ... ) {
+		if (!account.isBlocked()) {
+			throw new StoreBlockedException();
+		}
+		return new Product(id, account.getId(), ...);
+	}
+}
+
+```
+
+앞선 코드와 차이점은 응용 서비스에서 더 이상 Store의 상태를 확인하지 않는다는 것이다. </br>
+=> Product 생성 가능 여부를 확인하는 도메인 로직을 변경해도 도메인 영역의 Store만 변경하면 되고 응용 서비스는 영향을 받지 않는다. </br> </br>
+
+애그리거트가 갖고 있는 데이터를 이용해서 다른 애그리거트를 생성해야 한다면 애그리거트에 팩토리 메서드를 구현하는 것을 고려해 보자 </br>
+
+
