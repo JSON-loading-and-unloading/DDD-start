@@ -500,3 +500,97 @@ public class Product{
 - 차이점이 있다면 집합의 값에 밸류 대신 연관을 맺는 식별자가 온다는 점이다.
 - @ElementCollection을 사용하기 때문에 Product를 삭제할 때 매핑에 사용한 조인 테이블의 데이터도 함께 삭제된다.
 - 애그리거트를 직접 참조하는 방식을 사용했다면 영속성 전파, 로딩 전략을 고민해야 하는데 ID참조 방식을 사용함으로써 이런 고민을 할 필요가 없다.
+
+
+<h2>애그리거트 로딩 전략</h2>
+
+JPA 매핑을 설정할 때 항상 기억해야 할 점은 애그리거트에 속한 객체가 모두 모여야 완전한 하나가 된다는 것이다.</br>
+ - 조회 시점에서 애그리거트를 완전한 상태가 되도록 하려면 애그리거트 루트에서 연관 매핑의 조회 방식을 즉시 로딩으로 설정하면 된다
+ - 즉시 로딩으로 설정하면 애그리거트 루트를 구현할 때 연관된 구성요소를 DB에서 함께 읽어온다.
+
+
+❗즉시 로딩 방식으로 설정하면 애그리거트 루트를 로딩하는 시점에 애그리거트에 속한 모든 객체를 함께 로딩할 수 있는 장점이 있지만 이것은 항상 좋은 것은 아니다.❗</br>
+-> 즉시로딩 방식 문제가 될 수 있다.</br>
+-> 하이버네이트가 잘해주지면 중복되는 데이터가 쌓이고, 이것이 늘어날 시 성능적으로 문제가 발생할 수 있다.</br></br></br>
+
+
+애그리거트는 개념적으로 하나여야 한다. 하지만, 루트 엔티티를 로딩하는 시점에 애그리거트에 속한 객체를 모두 로딩해야 하는 것은 아니다. 그 이유는 다음의 두 가지이다.</br>
+
+ - 상태를 변경하는 기능을 실행할 ㄸ깨 애그리거트 상태가 완전해야 한다.
+ - 표현 영역에서 애그리거트의 상태 정보를 보여줄 때 필요하다.
+
+
+```
+@Transactional
+public void revmoeoptions(ProductId id, int optIdxToBeDeleted) {
+		//Product를 로딩/ 컬렉션은 지연 로딩으로 설정했다면 Option은 로딩되지 않음
+		Product product = productRepository.findByid(id);
+		
+		// 트랜잭션 범위이므로 지연 로딩으로 설정한 연관 로딩 가능
+		product.removeOption(optIdxToBeDeleted);
+}	
+Copy
+@Entity
+public class Product {
+	@ElementCollection(fetch = FetchType.LAZY)
+	@CollectionTable(name = "product_option",
+		joinColumns = @JoinColumn(name = "product_id"))
+	@OrderColumn(name = "list_idx")
+	private List<Option> options = new ArrayList<>();
+
+	public void removeOption(int optIdx) {
+			//실제 컬렉션에 접근할 때 로딩
+			this.options.remove(optIdx);
+	}
+}
+
+```
+
+JPA는 트랜잭션 범위 내에서 지연 로딩을 허용하기 때문에 다음 코드처럼 실제로 상태를 변경하는 시점에 필요한 구성요소만 로딩해도 문제가 되지 않는다.</br></br>
+
+일반적인 애플리케이션은 상태 변경 기능을 실행하는 빈도보다 조회 기능을 실행하는 빈도가 훨씬 높다.</br>
+그러므로 상태 변경을 위해 지연 로딩을 사용할 때 발생하는 추가 쿼리로 인한 실행 저하는 보통 문제가 되지 않는다.</br>
+-> 따라서 무조건 즉시 로딩이나 지연 로딩으로만 설정하기보다는 애그리거트에 맞게 즉시 로딩과 지연로딩을 선택해야 한다.</br></br>
+
+<h2>애그리거트의 영속성 전파</h2>
+
+애그리거트가 완전한 상태여야 한다는 것은 애그리거트 루트를 조회할 때뿐만 아니라 저장하고 삭제할 때도 하나로 처리해야 함을 의미한다.</br>
+
+ - @Embedded 매핑 타입은 함께 저장되고 삭제되므로 cascade속성을 추가로 설정하지 않아도 된다.
+ - 반면 애그리거트에 속한 @Entitiy타입에 대한 매핑은 cascade 속성을 사용해서 저장과 삭제 시에 함께 처리되도록 설정해야 한다.
+
+
+<h2>식별자 생성</h2>
+
+1. 사용자가 직접 생성
+2. 도메인 로직으로 생성
+3. DB를 이용한 일련번호 사용
+
+
+1</br>
+```
+public OrderId createId(UserId userId){
+	if(userId == null){
+		...
+	}
+	return new OrderId(userId.toString() +timestamp());
+}
+	private String timestamp(){
+     		return Long.toString(System.currentTimeMillis());
+}
+}
+
+```
+
+2</br>
+```
+ProductId nextId();
+
+```
+
+3</br>
+```
+@GenerateValue(strategy = GenerationType.IDENTITY)
+
+```
+
