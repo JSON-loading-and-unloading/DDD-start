@@ -213,3 +213,178 @@ First 대신 Top을 사용해도 된다 -> First나 Top 뒤에 숫자가 없으�
 MemberData findFirst~()
 
 ```
+
+
+<h2>스펙 조합을 위한 스펙 빌더 클래스</h2>
+
+- 스펙 빌더 클래스를 사용해서 코드를 이쁘게 사용할 수 있다.
+
+~~~
+public class SpecBuilder {
+    public static <T> Builder<T> builder(Class<T> type) {
+        return new Builder<T>();
+    }
+
+    public static class Builder<T> {
+        private List<Specification<T>> specs = new ArrayList<>();
+
+        public Builder<T> and(Specification<T> spec) {
+            specs.add(spec);
+            return this;
+        }
+
+        public Builder<T> ifHasText(String str,
+                                    Function<String, Specification<T>> specSupplier) {
+            if (StringUtils.hasText(str)) {
+                specs.add(specSupplier.apply(str));
+            }
+            return this;
+        }
+
+        public Builder<T> ifTure(Boolean cond,
+                                 Supplier<Specification<T>> specSupplier) {
+            if (cond != null && cond.booleanValue()) {
+                specs.add(specSupplier.get());
+            }
+            return this;
+        }
+
+        public Specification<T> toSpec() {
+            Specification<T> spec = Specification.where(null);
+            for (Specification<T> s : specs) {
+                spec = spec.and(s);
+            }
+            return spec;
+        }
+    }
+}
+
+// 사용 예시
+Specification<MemberData> spec = SpecBuilder.builder(MemberData.class)
+                .ifTure(searchRequest.isOnlyNoyBlocked(),
+                        () -> MemberDataSpecs.nonBlocked())
+                .ifHasText(searchRequest.getName(),
+                        name -> MemberDataSpecs.nameLike(searchRequest.getName()))
+                .toSpec();
+~~~
+
+
+
+<h2>동적 인스턴스 생성</h2>
+
+~~~
+@Query("""
+        select new com.myshop.order.query.dto.OrderView(
+            o.number, o.state, m.name, m.id, p.name
+        )
+        from Order o join o.orderLines ol, Member m, Product p
+        where o.orderer.memberId.id = :ordererId
+        and o.orderer.memberId.id = m.id
+        and index(ol) = 0
+        and ol.productId.id = p.id
+        order by o.number.number desc
+        """)
+List<OrderView> findOrderView(String ordererId);
+
+~~~
+
+
+~~~
+package com.myshop.order.query.dto;
+
+public class OrderView {
+
+    private final String number;
+    private final OrderState state;
+    private final String memberName;
+    private final String memberId;
+    private final String productName;
+
+    public OrderView(OrderNo number, OrderState state, String memberName, MemberId memberId, String productName) {
+        this.number = number.getNumber();
+        this.state = state;
+        this.memberName = memberName;
+        this.memberId = memberId.getId();
+        this.productName = productName;
+    }
+// getter 생량
+}
+
+~~~
+
+- OrderView 생성자에 인자로 각각 필요한 값을 전달한다.
+- JPA는 쿼리 결과에서 임의의 객체를 동적으로 생성할 수 있는 기능을 제공한다.
+- 객체 기준으로 쿼리를 작성하면서도 동시에 지연/즉기 로딩과 같은 고민 없이 원하는 모습으로 데이터를 조회할 수 있다는 장점이 있다.
+
+
+<h2>하이버네이트 @Subselect 사용</h2>
+
+- 하이버네이트는 jpa 확장 기능으로 @Subselect를 제공한다.
+
+~~~
+@Entity
+@Immutable
+@Subselect(
+        """
+                select o.order_number as number,
+                o.version,
+                o.orderer_id,
+                o.orderer_name,
+                o.total_amounts,
+                o.receiver_name,
+                o.state,
+                o.order_date,
+                p.product_id,
+                p.name as product_name
+                from purchase_order o inner join order_line ol
+                    on o.order_number = ol.order_number
+                    cross join product p
+                where
+                ol.line_idx = 0
+                and ol.product_id = p.product_id"""
+)
+@Synchronize({"purchase_order", "order_line", "product"})
+public class OrderSummary {
+    @Id
+    private String number;
+    private long version;
+    @Column(name = "orderer_id")
+    private String ordererId;
+    @Column(name = "orderer_name")
+    private String ordererName;
+    @Column(name = "total_amounts")
+    private int totalAmounts;
+    @Column(name = "receiver_name")
+    private String receiverName;
+    private String state;
+    @Column(name = "order_date")
+    private LocalDateTime orderDate;
+    @Column(name = "product_id")
+    private String productId;
+    @Column(name = "product_name")
+    private String productName;
+
+    protected OrderSummary() {
+    }
+
+// getter 생략
+}
+
+~~~
+
+- @Subselect()
+  + 뷰를 사용하는 것처럼 @Subselect를 사용하면 쿼리 실행 결과를 매핑할 테이블처럼 사용한다.
+  + 뷰를 수정할 수 없ㅅ이 @Subselect로 조회한 엔티티 역시 수정할 수 없다.
+
+- @Immutable() -> 실수로 @Subselect를 이용한 @Entitiy의 매핑 필드를 수정하면 하이버네이트는 변경 내역을 반영하는 update쿼리를 실행할 것이다.
+  + 하지만 매핑 한 테이블이 없으므로 에러가 발생한다.
+  + 이를 위해 @Immutable()가 쓰인다.
+  + @Immutable()을 사용하면 하이버네이트는 해당 엔티티의 매핑 필드/프로퍼티가 변경되도 db에 반영되지 않고 무시한다.
+
+- @Synchronize() -> 하이버네이트는 특별한 이유가 없으면 하이버네이트는 트랜잭션을 커밋하는 시점에 변경사항을 저장한다. 하지만 같은함수 안에 바로 조회 시 최신 데이터를 가져오지 않는다.
+   + 이를 위해 @Synchronize()가 쓰인다.
+   + 하이버네이트는 엔티티를 로딩하기 전에 지정한 테이블과 관련된 변경이 발생하면 플러시를 먼저 한다.
+  
+
+
+
