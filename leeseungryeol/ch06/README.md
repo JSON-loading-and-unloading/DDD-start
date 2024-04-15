@@ -89,4 +89,65 @@
 -> 이 과정에서 표현 영역은 사용자의 요청 데이터를 응용 서비스가 요구하는 형식으로 변환하고 응용 서비스의 결과를 사용자에게 응답할 수 있는 형식으로 변환</br></br>
 
 
+<h2>값 검증</h2>
+
+- 값 검증은 표현 영역과 응용 서비스 두 곳에서 모두 수행할 수 있다.
+
+각 영역에서의 검증의 역할을 나눈다.</br>
+- 표현 영역 : 필수 값, 값의 형식, 범위 등을 검증한다. -> @validate() 어노테이션을 사용
+- 응용 서비스 : 데이터의 존재 유무와 같은 논리적 오류를 검증한다.
+
+<h2>권한 검사</h2>
+
+권한 검사를 수행할 수 있는 곳
+1. 표현 영역
+2. 응용 서비스
+3. 도메인
+
+표현 영역에서 할 수 있는 기본적인 검사는 인증된 사용자인지 아닌지 검사하는 것이다.</br>
+- URL을 처리하는 컨트롤러에 웹 요청을 전달하기 전에 인증여부를 검사해서 인증된 사용자의 웹 요청만 컨트롤러에 전달</br>
+</br>
+하지만 URL만으로 접근 제어를 할 수 없는 경우 응용 서비스의 메서드 단위로 권한 검사를 수행한다.</br>
+-> 스프링 시큐리티 AOP를 활용해서 다음과 같이 애너테이션으로 서비스 메서드에 대한 권한 검사를 할 수 있다.</br>
+
+~~~
+@PreAuthorize("hasRole('ADMIN')")
+~~~
+
+개별 도메인 객체 단위로 권한 검사를 해야 하는 경우 해당 에그리거트를 조회하여 검사해야한다.</br>
+
+~~~
+Article article = articleRepository.findById(articleId);
+
+~~~
+
+
+
+<h2>조회 전용 기능과 응용 서비스</h2>
+
+~~~
+public class OrderListService {
+	public List<OrderView> getOrderList(String ordererId) {
+		return orderViewDao.selectByOrderer(ordererId);
+	}
+}
+
+~~~
+
+다음과 같이 단순 조회 트랜잭션 조차필요가 없는 api일 경우에는 service를 만들 필요 없이 </br>
+~~~
+public class OrderController {
+	private OrderViewDao orderViewDao;
+
+	@RequestMapping("/myorders")
+	public String list(ModelMap model) {
+		String ordererId = SecurityContext.getAuthentication().getId();
+		List<OrderView> orders = orderViewDao.selectByOrderer(ordererId);
+		model.addAttribute("orders", orders);
+		return "order/list";
+	}
+
+~~~
+
+다음과 같이 controller에서 모두 처리할 수 있다.</br>
 
